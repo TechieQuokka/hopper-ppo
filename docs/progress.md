@@ -32,7 +32,7 @@ did **not** confirm it (p = 0.20), but did confirm that it learns about 2x slowe
 | 4. Baseline run, videos, charts | Done. Results below; copies in `assets/` |
 | 5a. Sweep 1: update size (5 variants x 3 seeds) | Done. Results below |
 | 5b. Sweep 2: confirm clip 0.1 (3 variants x 10 seeds) | Done. Results below |
-| 6. README report | Not started |
+| 6. README report | Done. `README.md` |
 
 ## How to use
 
@@ -270,4 +270,4 @@ Lessons on method:
 1. Normalization ablation (obs and/or reward off), to see why it matters.
 2. Other settings: `n_steps` (rollout length), `gae_lambda`, `ent_coef`, network size,
    the RL Zoo's tuned Hopper settings.
-3. README report (stage 6).
+3. Push to a new public GitHub repository.
