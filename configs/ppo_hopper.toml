@@ -1,0 +1,45 @@
+# Baseline settings: PPO on Hopper-v5.
+# Standard PPO settings for MuJoCo tasks (PPO paper / SB3 defaults) with
+# observation and reward normalization.
+# Any value can be overridden from the command line, for example:
+#   python train.py --set ppo.n_epochs=5 --set run.seed=1
+
+[run]
+name = "ppo_hopper"
+env_id = "Hopper-v5"
+seed = 0
+device = "cpu"             # small MLP: confirmed by tests/bench_speed.py
+n_envs = 8                 # parallel environments: confirmed by tests/bench_speed.py
+vec_env = "subproc"        # one process per environment
+total_timesteps = 1_000_000
+render_camera = "track"    # camera that follows the robot in videos
+
+[ppo]
+learning_rate = 3e-4
+lr_schedule = "constant"
+n_steps = 256              # per environment: one rollout = 256 x 8 = 2048 steps
+batch_size = 64
+n_epochs = 10
+gamma = 0.99
+gae_lambda = 0.95
+clip_range = 0.2
+ent_coef = 0.0
+vf_coef = 0.5
+max_grad_norm = 0.5
+net_arch = [64, 64]        # policy and value networks each
+activation = "tanh"
+log_std_init = 0.0
+ortho_init = true
+
+[normalize]
+obs = true
+reward = true
+clip_obs = 10.0
+
+[eval]
+freq = 10_000              # env steps between evaluations
+episodes = 5
+
+[save]
+snapshot_freq = 10_000     # resumable snapshot (model + normalization stats)
+checkpoint_freq = 100_000  # model + stats kept for later comparison and videos
