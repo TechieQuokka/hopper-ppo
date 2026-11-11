@@ -1,6 +1,6 @@
 # Progress and handoff
 
-Last updated: 2026-11-11 17:10
+Last updated: 2026-11-11 17:45
 
 This document records where the work stands so it can be continued later.
 
@@ -13,11 +13,12 @@ each setting does. Implementing PPO from scratch is out of scope.
 
 ## Status in one paragraph
 
-Stages 0-4 are done. The pipeline trains, evaluates, records videos with a camera check,
+Stages 0-5a are done. The pipeline trains, evaluates, records videos with a camera check,
 draws charts, and can be stopped and resumed. The baseline (standard MuJoCo PPO settings
 with observation and reward normalization) trains 1M steps in about 6 minutes on the CPU
-and reaches an eval return of 3445 +/- 4 over 10 episodes, all 1000 steps long.
-Nothing is running now. Next: design the sweep (stage 5) together with the user.
+and reaches an eval return of 3445 +/- 4 over 10 episodes. The first sweep (5 variants x
+3 seeds) tested ways to limit the update size late in training; results are below.
+Nothing is running now. Next: decide the follow-up with the user.
 
 ## Stages
 
@@ -28,7 +29,8 @@ Nothing is running now. Next: design the sweep (stage 5) together with the user.
 | 2. Snapshots and resume | Done. Verified by `tests/check_resume.py` (Ctrl+C and hard kill) |
 | 3. Speed benchmark | Done. `tests/bench_speed.py`; CPU, 8 envs in one process, 1 thread |
 | 4. Baseline run, videos, charts | Done. Results below; copies in `assets/` |
-| 5. Sweep and multi-seed check | Not started. To be designed with the user |
+| 5a. Sweep 1: update size (5 variants x 3 seeds) | Done. Results below |
+| 5b. Follow-up sweep | Not decided |
 | 6. README report | Not started |
 
 ## How to use
@@ -146,21 +148,71 @@ Here:
 
 ## Known limitations
 
-- Single seed so far; the instability above means one run says little about a setting.
+- The baseline section uses one seed; the sweep uses three, which still leaves wide ranges.
 - After a hard kill, up to one snapshot interval (10k steps) is trained again.
 - Ctrl+C during an update saves the parameters as they are at that moment; the
   interrupted rollout's data is discarded.
 - Resuming re-seeds with the step count, so a resumed run does not reproduce an
   uninterrupted one exactly.
 
-## Possible next steps (stage 5, to be agreed)
+## Sweep 1: update size (`configs/sweeps/update_size.toml`, `runs/update_size/`)
 
-Candidates, one change at a time against the baseline, with several seeds since a run
-takes about 6 minutes:
+Question: in the baseline, `approx_kl` and `clip_fraction` grew as the policy got sharper,
+and the eval return kept collapsing. Does limiting the update size help?
+Each variant changes one setting; seeds 0, 1, 2; 1M steps each. 15 runs took about
+35 minutes, 3 at a time (each run ran at full speed in parallel).
 
-1. No normalization (obs and/or reward off), to see why it matters.
-2. Smaller or decaying updates late in training: linear learning-rate decay,
-   `n_epochs` 5, `clip_range` 0.1, or a KL limit (`target_kl`, would need a config field).
-3. `n_steps` (rollout length) and `gae_lambda`.
-4. `ent_coef` > 0 (exploration), larger networks.
-5. The RL Zoo's tuned Hopper settings as a reference point.
+| Variant | Change |
+|---|---|
+| baseline | - |
+| lr_linear | learning rate decays linearly from 3e-4 to 0 |
+| epochs5 | `n_epochs` 10 -> 5 |
+| clip0.1 | `clip_range` 0.2 -> 0.1 |
+| kl0.02 | `target_kl` 0.02 (a round of updates stops once approx_kl > 0.03) |
+
+Mean over seeds (min-max in brackets). "Good at": first eval >= 3000. "Collapse rate":
+share of evals below 2000 after that point. "Final": final model over 10 episodes.
+Per-run numbers: `docs/update_size_summary.csv`.
+
+| Variant | Best eval | Mean of last 10 evals | Good at | Collapse rate | Final model | Late approx_kl | Late epochs per rollout |
+|---|---|---|---|---|---|---|---|
+| baseline | 3604 (3445-3714) | 3205 (2877-3427) | 167k (130-190k) | 9% (7-12%) | 3342 (3265-3480) | 0.042 | 10.0 |
+| lr_linear | 3463 (3308-3585) | 3143 (2644-3489) | 270k (180-320k) | 3% (0-7%) | 3100 (2517-3496) | 0.006 | 10.0 |
+| epochs5 | 3512 (3312-3627) | 3025 (1992-3566) | 373k (190-550k) | 15% (4-31%) | 2651 (1268-3544) | 0.019 | 5.0 |
+| clip0.1 | 3585 (3376-3772) | **3490 (3325-3734)** | 337k (270-390k) | 6% (2-15%) | **3478 (3353-3706)** | 0.010 | 10.0 |
+| kl0.02 | 3400 (3240-3549) | 2477 (1903-2823) | 307k (140-550k) | 26% (9-55%) | 2802 (1692-3511) | 0.018 | 2.7 |
+
+"Late" = mean of the last 50 updates. Charts: `assets/update_size_learning_curve.png`,
+`assets/update_size_diagnostics.png`.
+
+Findings (3 seeds, so only large and consistent differences count):
+
+1. **Every variant lowered the late approx_kl** (0.006-0.019 vs 0.042), so each knob did
+   what it says. A smaller KL alone did not make training more stable.
+2. **Cutting the number of updates hurt.** `kl0.02` stopped each round after about 2.7 of
+   10 epochs late in training: the worst variant on every measure, with the training
+   return stuck near 1800-2000. `epochs5` was also worse than the baseline and varied
+   most between seeds. Fewer passes over the data means less learning per rollout.
+3. **Limiting the step per sample helped at the end.** `clip0.1` had the best and most
+   consistent end result: all three seeds above 3325 over the last 10 evals and above
+   3350 for the final model; seed 2 reached the best single score (3772, final 3706).
+   Its clip fraction stays as high as the baseline's (a narrower clip catches more
+   samples), but its KL stays low.
+4. **Learning-rate decay calmed the end of training** (lowest collapse rate, 0% for seed 2),
+   but it also freezes whatever the policy is when the rate reaches 0: seed 1 ended at
+   2517 with only 2 of 10 full-length episodes.
+5. **The baseline learns fastest** (first 3000 at 167k on average, about 2x earlier than
+   the others), then oscillates. Every stabilizing change also slowed early learning.
+6. The action std shrinks more slowly in all variants (0.26-0.35 at the end vs 0.19),
+   because smaller updates also shrink the exploration noise more slowly.
+
+Reproducibility: `baseline_s0` in the sweep produced exactly the same eval log as the
+standalone baseline run (same seed, same settings).
+
+## Possible next steps (to be agreed)
+
+1. Confirm `clip0.1` and `lr_linear` with more seeds (e.g. 5), or combine them
+   (`clip0.1` + `lr_linear`).
+2. Normalization ablation (obs and/or reward off), to see why it matters.
+3. `n_steps` (rollout length), `gae_lambda`, `ent_coef`, network size.
+4. The RL Zoo's tuned Hopper settings as a reference point.
