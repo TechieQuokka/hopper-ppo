@@ -12,8 +12,12 @@ Checks:
        per 1000-step episode).
     2. The detector itself works: a camera that does NOT follow the robot
        must be reported as out of view.
-    3. A marked image is saved so the projection can be checked by eye:
-       tests/output/camera_check.png (a red cross should sit on the torso).
+    3. The floor is drawn far enough for a full episode (Hopper draws it to
+       20 m only; a good policy travels about 20 m), and drawing it wider does
+       not change the physics: the same actions give the same trajectory.
+    4. A marked image is saved so the projection can be checked by eye:
+       tests/output/camera_check.png (a red cross should sit on the torso,
+       with the floor visible even at 100 m).
 
 Usage:
     python tests/check_camera.py
@@ -32,7 +36,7 @@ import imageio  # noqa: E402
 import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 
-from hopper_ppo.builders import make_render_env  # noqa: E402
+from hopper_ppo.builders import RENDER_FLOOR_HALF_SIZE, _make_gym_env, make_render_env  # noqa: E402
 from hopper_ppo.config import DEFAULT_CONFIG, display_path, load_config  # noqa: E402
 from hopper_ppo.media import TRACKED_BODY, is_in_view, torso_on_screen  # noqa: E402
 
@@ -93,6 +97,27 @@ def main() -> None:
         torso.xpos[0] += distance
         x, y = torso_on_screen(env, camera)
         check(not is_in_view(x, y), f"robot {distance:.0f} m away from a still camera is out of view (x={x:.2f})")
+    env.close()
+
+    print("\n=== The floor is drawn far enough, and the physics is unchanged ===")
+    env = make_render_env(cfg)
+    half_size = float(env.unwrapped.model.geom("floor").size[0])
+    check(half_size >= RENDER_FLOOR_HALF_SIZE, f"floor drawn out to {half_size:.0f} m")
+    plain = _make_gym_env(cfg.run.env_id)
+    rng = np.random.default_rng(0)
+    actions = rng.uniform(-1, 1, size=(300, plain.action_space.shape[0])).astype(np.float32)
+    trajectories = []
+    for sim in (plain, env):
+        sim.reset(seed=0)
+        positions = []
+        for action in actions:
+            _, _, terminated, truncated, _ = sim.step(action)
+            positions.append(sim.unwrapped.data.qpos.copy())
+            if terminated or truncated:
+                sim.reset(seed=1)
+        trajectories.append(np.array(positions))
+    check(np.array_equal(*trajectories), "same actions give an identical trajectory with the wider floor")
+    plain.close()
     env.close()
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

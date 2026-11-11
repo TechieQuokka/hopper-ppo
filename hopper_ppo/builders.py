@@ -21,6 +21,7 @@ from torch import nn
 from hopper_ppo.config import Config
 
 EVAL_SEED_OFFSET = 10_000
+RENDER_FLOOR_HALF_SIZE = 200.0  # meters; Hopper's own floor is drawn to 20 m
 ACTIVATIONS = {"tanh": nn.Tanh, "relu": nn.ReLU}
 
 
@@ -86,9 +87,29 @@ def make_eval_env(cfg: Config, stats_file: Path | None = None) -> VecNormalize:
     return env
 
 
+def widen_floor(env: gym.Env, half_size: float = RENDER_FLOOR_HALF_SIZE) -> None:
+    """Draw the floor out to `half_size` meters instead of Hopper's 20.
+
+    A good policy travels about 20 m in one episode and would hop past the
+    edge of the drawn floor. A MuJoCo plane collides as an infinite plane
+    whatever its size, so this changes the picture only, not the physics.
+    The checker texture is repeated more often so the squares keep their size.
+    """
+    model = env.unwrapped.model
+    floor = model.geom("floor")
+    scale = half_size / floor.size[0]
+    if scale <= 1:
+        return
+    floor.size[:2] *= scale
+    material = model.mat(int(floor.matid[0]))
+    material.texrepeat[:] *= scale
+
+
 def make_render_env(cfg: Config) -> gym.Env:
     """Create the one environment used for videos. All video code must use this."""
-    return _make_gym_env(cfg.run.env_id, render_mode="rgb_array", camera_name=cfg.run.render_camera or None)
+    env = _make_gym_env(cfg.run.env_id, render_mode="rgb_array", camera_name=cfg.run.render_camera or None)
+    widen_floor(env)
+    return env
 
 
 def make_model(cfg: Config, env: VecEnv, tensorboard_dir: Path | None = None) -> PPO:
