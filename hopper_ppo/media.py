@@ -187,44 +187,79 @@ def _check_series_count(count: int) -> None:
         raise ValueError(f"At most {len(SERIES_COLORS)} runs can share one chart, got {count}")
 
 
-def plot_learning_curves(runs: dict[str, Path], path: Path, title: str) -> None:
-    """Draw eval mean return (with a +/- 1 std band) against env steps.
+def _aligned(series: list[tuple[list[int], list[float]]]) -> tuple[list[int], np.ndarray]:
+    """Keep the steps every series has, and stack the values: shape (series, steps)."""
+    common = sorted(set.intersection(*(set(steps) for steps, _ in series)))
+    stacked = [[dict(zip(steps, values))[step] for step in common] for steps, values in series]
+    return common, np.array(stacked, dtype=float)
 
-    `runs` maps a label to that run's `evals.csv`. Up to 8 runs, one fixed color each.
+
+def _label_line_ends(ax: plt.Axes, ends: list[tuple[int, float]]) -> None:
+    """Write each line's last value next to its end, nudged apart so labels never overlap.
+
+    The value is in ink, not in the series color.
     """
-    _check_series_count(len(runs))
+    low, high = ax.get_ylim()
+    gap = 0.045 * (high - low)
+    placed: list[float] = []
+    for _, value in sorted(ends, key=lambda end: end[1]):
+        placed.append(max(value, placed[-1] + gap) if placed else value)
+    for (step, value), y in zip(sorted(ends, key=lambda end: end[1]), placed):
+        ax.annotate(
+            f"{value:,.0f}",
+            (step, y),
+            xytext=(6, 0),
+            textcoords="offset points",
+            va="center",
+            fontsize=9,
+            color=INK_SECONDARY,
+            annotation_clip=False,
+        )
+
+
+def plot_learning_curves(groups: dict[str, list[Path]], path: Path, title: str) -> None:
+    """Draw eval mean return against env steps, one line per group.
+
+    `groups` maps a label to the `evals.csv` files of its runs (usually one
+    per seed). A group of one run shows +/- 1 std over its eval episodes; a
+    group of several runs shows the mean over runs and a min-max band.
+    Up to 8 groups, one fixed color each.
+    """
+    _check_series_count(len(groups))
     fig, ax = plt.subplots(figsize=(9, 5), dpi=150)
     fig.patch.set_facecolor(SURFACE)
+    band_note = "band: +/- 1 std over eval episodes"
+    ends: list[tuple[int, float]] = []
 
-    for (label, evals_file), color in zip(runs.items(), SERIES_COLORS):
-        rows = read_rows(evals_file)
-        steps = [int(row["timesteps"]) for row in rows]
-        mean = np.array([float(row["mean_reward"]) for row in rows])
-        std = np.array([float(row["std_reward"]) for row in rows])
-        ax.fill_between(steps, mean - std, mean + std, color=color, alpha=0.15, linewidth=0)
+    for (label, files), color in zip(groups.items(), SERIES_COLORS):
+        if len(files) == 1:
+            rows = read_rows(files[0])
+            steps = [int(row["timesteps"]) for row in rows]
+            mean = np.array([float(row["mean_reward"]) for row in rows])
+            std = np.array([float(row["std_reward"]) for row in rows])
+            low, high = mean - std, mean + std
+        else:
+            steps, values = _aligned([column(read_rows(f), "mean_reward") for f in files])
+            mean, low, high = values.mean(axis=0), values.min(axis=0), values.max(axis=0)
+            band_note = "line: mean over seeds; band: min-max over seeds"
+        ax.fill_between(steps, low, high, color=color, alpha=0.15, linewidth=0)
         ax.plot(steps, mean, color=color, linewidth=2, solid_capstyle="round", solid_joinstyle="round", label=label)
-        if len(runs) <= 4 and steps:
-            # Direct label at the line end: the value in ink, not in the series color.
-            ax.annotate(
-                f"{mean[-1]:,.0f}",
-                (steps[-1], mean[-1]),
-                xytext=(6, 0),
-                textcoords="offset points",
-                va="center",
-                fontsize=9,
-                color=INK_SECONDARY,
-            )
+        if len(steps):
+            ends.append((steps[-1], float(mean[-1])))
 
     _style_axes(ax)
-    ax.set_title(title, loc="left", fontsize=12, color=INK, pad=12)
+    ax.set_title(title, loc="left", fontsize=12, color=INK, pad=20)
+    ax.text(0, 1.02, band_note, transform=ax.transAxes, fontsize=8, color=INK_MUTED, va="bottom")
     ax.set_xlabel("Environment steps", color=INK_SECONDARY)
     ax.set_ylabel("Eval return (mean of episodes)", color=INK_SECONDARY)
     ax.tick_params(labelsize=9)
     ax.yaxis.set_major_formatter(lambda y, _: f"{y:,.0f}")
     if ax.get_ylim()[0] >= 0:
         ax.set_ylim(bottom=0)
-    if len(runs) > 1:
-        legend = ax.legend(frameon=False, fontsize=9, loc="upper left")
+    if len(groups) <= 4:
+        _label_line_ends(ax, ends)
+    if len(groups) > 1:
+        legend = ax.legend(frameon=False, fontsize=9, loc="lower right")
         for text in legend.get_texts():
             text.set_color(INK_SECONDARY)
 
@@ -245,30 +280,36 @@ DIAGNOSTIC_PANELS = [
 ]
 
 
-def plot_diagnostics(runs: dict[str, Path], path: Path, title: str) -> None:
+def plot_diagnostics(groups: dict[str, list[Path]], path: Path, title: str) -> None:
     """Small multiples of PPO training metrics, one panel per metric.
 
-    `runs` maps a label to that run's `progress.csv`. Up to 8 runs, one fixed color each.
+    `groups` maps a label to the `progress.csv` files of its runs. A group of
+    several runs is drawn as its mean over runs. Up to 8 groups, one fixed color each.
     """
-    _check_series_count(len(runs))
-    data = {label: read_rows(progress_file) for label, progress_file in runs.items()}
+    _check_series_count(len(groups))
+    data = {label: [read_rows(f) for f in files] for label, files in groups.items()}
     fig, axes = plt.subplots(2, 3, figsize=(12, 6.5), dpi=150)
     fig.patch.set_facecolor(SURFACE)
 
     for ax, (key, panel_title, hint) in zip(axes.flat, DIAGNOSTIC_PANELS):
-        for (label, rows), color in zip(data.items(), SERIES_COLORS):
-            steps, values = column(rows, key)
-            ax.plot(steps, values, color=color, linewidth=1.5, solid_joinstyle="round", label=label)
+        for (label, runs), color in zip(data.items(), SERIES_COLORS):
+            series = [column(rows, key) for rows in runs]
+            series = [s for s in series if s[0]]
+            if not series:
+                continue
+            steps, values = _aligned(series)
+            ax.plot(steps, values.mean(axis=0), color=color, linewidth=1.5, solid_joinstyle="round", label=label)
         _style_axes(ax)
         ax.set_title(f"{panel_title}\n", loc="left", fontsize=10, color=INK, pad=2)
         ax.text(0, 1.02, hint, transform=ax.transAxes, fontsize=8, color=INK_MUTED, va="bottom")
         if key == "train/value_loss":
             ax.set_yscale("log")
 
-    fig.suptitle(title, x=0.01, ha="left", fontsize=12, color=INK)
-    if len(runs) > 1:
+    several = any(len(files) > 1 for files in groups.values())
+    fig.suptitle(title + ("  (mean over seeds)" if several else ""), x=0.01, ha="left", fontsize=12, color=INK)
+    if len(groups) > 1:
         handles, labels = axes.flat[0].get_legend_handles_labels()
-        legend = fig.legend(handles, labels, frameon=False, fontsize=9, loc="lower center", ncol=min(len(runs), 4))
+        legend = fig.legend(handles, labels, frameon=False, fontsize=9, loc="lower center", ncol=min(len(groups), 5))
         for text in legend.get_texts():
             text.set_color(INK_SECONDARY)
         fig.tight_layout(rect=(0, 0.06, 1, 1))

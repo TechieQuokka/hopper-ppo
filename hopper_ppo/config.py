@@ -42,6 +42,9 @@ class PPOConfig:
     gamma: float = 0.99
     gae_lambda: float = 0.95
     clip_range: float = 0.2
+    # Stop a round of updates early once the approximate KL to the policy that
+    # collected the rollout exceeds 1.5 x this value. 0 turns the limit off.
+    target_kl: float = 0.0
     ent_coef: float = 0.0
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
@@ -130,6 +133,8 @@ def validate(cfg: Config) -> None:
         raise ValueError(f"ppo.lr_schedule must be 'constant' or 'linear', got {cfg.ppo.lr_schedule!r}")
     if cfg.ppo.activation not in ("tanh", "relu"):
         raise ValueError(f"ppo.activation must be 'tanh' or 'relu', got {cfg.ppo.activation!r}")
+    if cfg.ppo.target_kl < 0:
+        raise ValueError("ppo.target_kl must be 0 (off) or positive")
     if cfg.rollout_size % cfg.ppo.batch_size != 0:
         raise ValueError(
             f"Rollout size n_envs * n_steps = {cfg.rollout_size} must be a multiple of "

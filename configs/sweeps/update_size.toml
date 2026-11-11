@@ -1,0 +1,33 @@
+# Sweep 1: control how far each PPO update moves the policy late in training.
+#
+# In the baseline, as the action std fell from about 0.8 to 0.17, approx_kl rose
+# from about 0.011 to 0.046 and clip_fraction from 0.13 to 0.36, and the eval
+# return collapsed below 2000 ten times after first reaching 3000.
+# Each variant changes one setting that limits the update size.
+#   python sweep.py configs/sweeps/update_size.toml --jobs 3
+
+[sweep]
+name = "update_size"
+base = "configs/ppo_hopper.toml"
+seeds = [0, 1, 2]
+common = []
+
+[[variants]]
+tag = "baseline"
+set = []
+
+[[variants]]
+tag = "lr_linear"         # learning rate decays linearly from 3e-4 to 0
+set = ['ppo.lr_schedule="linear"']
+
+[[variants]]
+tag = "epochs5"           # half as many passes over each rollout
+set = ["ppo.n_epochs=5"]
+
+[[variants]]
+tag = "clip0.1"           # half the allowed probability-ratio change
+set = ["ppo.clip_range=0.1"]
+
+[[variants]]
+tag = "kl0.02"            # stop a round of updates once approx_kl > 0.03
+set = ["ppo.target_kl=0.02"]

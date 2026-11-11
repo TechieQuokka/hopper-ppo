@@ -129,6 +129,7 @@ def make_model(cfg: Config, env: VecEnv, tensorboard_dir: Path | None = None) ->
         gamma=ppo.gamma,
         gae_lambda=ppo.gae_lambda,
         clip_range=ppo.clip_range,
+        target_kl=ppo.target_kl or None,
         ent_coef=ppo.ent_coef,
         vf_coef=ppo.vf_coef,
         max_grad_norm=ppo.max_grad_norm,

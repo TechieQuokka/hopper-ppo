@@ -7,12 +7,14 @@ Usage:
     python evaluate.py runs/<run_name> --video              # also save videos/<model>.mp4
     python evaluate.py runs/<run_name> --video --gif        # plus a small GIF for documents
     python evaluate.py runs/<run_name> --video-stages       # one video per checkpoint + best
+    python evaluate.py runs/<run_name> --model final --save-score   # -> logs/score_final.json
 
 Every video comes with a contact sheet (videos/<model>_sheet.png: frames at
 0/25/50/75/100%) and a camera check that warns if the robot leaves the view.
 """
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -41,14 +43,28 @@ def load(cfg: Config, paths: RunPaths, name: str, device: str) -> tuple[PPO, Vec
     return model, make_eval_env(cfg, stats_file=files.stats)
 
 
-def score(model: PPO, env: VecNormalize, episodes: int) -> None:
+def score(model: PPO, env: VecNormalize, episodes: int) -> dict[str, float]:
     rewards, lengths = evaluate_policy(
         model, env, n_eval_episodes=episodes, deterministic=True, return_episode_rewards=True
     )
+    result = {
+        "episodes": episodes,
+        "mean_reward": float(np.mean(rewards)),
+        "std_reward": float(np.std(rewards)),
+        "min_reward": float(np.min(rewards)),
+        "max_reward": float(np.max(rewards)),
+        "mean_length": float(np.mean(lengths)),
+        "full_length_episodes": int(sum(length >= 1000 for length in lengths)),
+    }
     print(
-        f"[eval] {episodes} episodes: return {np.mean(rewards):.1f} +/- {np.std(rewards):.1f} "
-        f"(min {np.min(rewards):.1f}, max {np.max(rewards):.1f}), mean length {np.mean(lengths):.0f}"
+        f"[eval] {episodes} episodes: return {result['mean_reward']:.1f} +/- {result['std_reward']:.1f} "
+        f"(min {result['min_reward']:.1f}, max {result['max_reward']:.1f}), mean length {result['mean_length']:.0f}"
     )
+    return result
+
+
+def score_file(paths: RunPaths, name: str) -> Path:
+    return paths.logs_dir / f"score_{name}.json"
 
 
 def video(cfg: Config, model: PPO, stats: VecNormalize, out_dir: Path, name: str, episodes: int, gif: bool) -> bool:
@@ -85,6 +101,7 @@ def main() -> None:
     parser.add_argument("--video-stages", action="store_true", help="record every checkpoint and the best model")
     parser.add_argument("--video-episodes", type=int, default=1)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--save-score", action="store_true", help="write logs/score_<model>.json")
     args = parser.parse_args()
 
     paths = RunPaths(args.run_dir.resolve())
@@ -94,7 +111,9 @@ def main() -> None:
 
     model, env = load(cfg, paths, args.model, args.device)
     print(f"[load] {display_path(model_files(paths, args.model).model)}")
-    score(model, env, args.episodes)
+    result = score(model, env, args.episodes)
+    if args.save_score:
+        score_file(paths, args.model).write_text(json.dumps(result, indent=2) + "\n")
 
     camera_ok = True
     if args.video:

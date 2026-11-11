@@ -25,10 +25,10 @@ def plot_runs(
     first = next(iter(runs.values()))
     name = title or f"PPO on {load_config(first.config_file).run.env_id}"
     plot_learning_curves(
-        {label: run.evals_file for label, run in runs.items()}, curve_file, f"{name}: eval return during training"
+        {label: [run.evals_file] for label, run in runs.items()}, curve_file, f"{name}: eval return during training"
     )
     plot_diagnostics(
-        {label: run.progress_file for label, run in runs.items()}, diagnostics_file, f"{name}: training diagnostics"
+        {label: [run.progress_file] for label, run in runs.items()}, diagnostics_file, f"{name}: training diagnostics"
     )
     print(f"[plot] {display_path(curve_file)}")
     print(f"[plot] {display_path(diagnostics_file)}")

@@ -105,3 +105,32 @@ def column(rows: list[dict[str, str]], key: str) -> tuple[list[int], list[float]
             steps.append(int(row["timesteps"]))
             values.append(float(raw))
     return steps, values
+
+
+# Thresholds for the stability summary. A return of 3000 means the robot
+# stays up for the whole episode while moving forward; below 2000 it falls early.
+GOOD_RETURN = 3000.0
+COLLAPSE_RETURN = 2000.0
+
+
+def summarize_evals(path: Path) -> dict[str, float | int | None] | None:
+    """Summary numbers of one run's evaluation log, or None if it is empty.
+
+    - best: highest eval mean return
+    - last10: mean of the last 10 evaluations
+    - first_good: first step with an eval return of at least GOOD_RETURN
+    - collapses: evaluations below COLLAPSE_RETURN after `first_good`
+    """
+    rows = read_rows(path)
+    if not rows:
+        return None
+    steps = [int(row["timesteps"]) for row in rows]
+    rewards = [float(row["mean_reward"]) for row in rows]
+    good = next((i for i, reward in enumerate(rewards) if reward >= GOOD_RETURN), None)
+    return {
+        "steps": steps[-1],
+        "best": max(rewards),
+        "last10": sum(rewards[-10:]) / len(rewards[-10:]),
+        "first_good": steps[good] if good is not None else None,
+        "collapses": sum(reward < COLLAPSE_RETURN for reward in rewards[good + 1 :]) if good is not None else None,
+    }
