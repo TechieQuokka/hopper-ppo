@@ -1,0 +1,13 @@
+# Versions installed in the conda env `rl` (Python 3.13.12) on 2026-11-11.
+# This file is a record for reproducibility.
+torch==2.11.0
+gymnasium==1.4.0
+mujoco==4.0.0
+stable-baselines3==2.9.2
+tensorboard==2.21.0
+numpy==2.4.4
+matplotlib==3.10.8
+imageio==2.38.1
+imageio-ffmpeg==0.8.1
+tqdm==4.70.1
+rich==15.0.0

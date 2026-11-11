@@ -1,0 +1,10 @@
+# Training outputs (models, normalization stats, logs, videos)
+runs/
+tests/output/
+
+# Python
+__pycache__/
+*.pyc
+
+# MuJoCo
+MUJOCO_LOG.TXT
