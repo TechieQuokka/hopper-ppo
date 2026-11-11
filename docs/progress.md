@@ -1,6 +1,6 @@
 # Progress and handoff
 
-Last updated: 2026-11-11 17:45
+Last updated: 2026-11-11 19:05
 
 This document records where the work stands so it can be continued later.
 
@@ -13,12 +13,13 @@ each setting does. Implementing PPO from scratch is out of scope.
 
 ## Status in one paragraph
 
-Stages 0-5a are done. The pipeline trains, evaluates, records videos with a camera check,
+Stages 0-5 are done. The pipeline trains, evaluates, records videos with a camera check,
 draws charts, and can be stopped and resumed. The baseline (standard MuJoCo PPO settings
 with observation and reward normalization) trains 1M steps in about 6 minutes on the CPU
-and reaches an eval return of 3445 +/- 4 over 10 episodes. The first sweep (5 variants x
-3 seeds) tested ways to limit the update size late in training; results are below.
-Nothing is running now. Next: decide the follow-up with the user.
+and reaches an eval return of 3445 +/- 4 over 10 episodes (seed 0). Sweep 1 (5 variants
+x 3 seeds) suggested that `clip_range = 0.1` ends better; sweep 2 (3 variants x 10 seeds)
+did **not** confirm it (p = 0.20), but did confirm that it learns about 2x slower
+(p = 0.001). Nothing is running now. Next: decide with the user.
 
 ## Stages
 
@@ -30,7 +31,7 @@ Nothing is running now. Next: decide the follow-up with the user.
 | 3. Speed benchmark | Done. `tests/bench_speed.py`; CPU, 8 envs in one process, 1 thread |
 | 4. Baseline run, videos, charts | Done. Results below; copies in `assets/` |
 | 5a. Sweep 1: update size (5 variants x 3 seeds) | Done. Results below |
-| 5b. Follow-up sweep | Not decided |
+| 5b. Sweep 2: confirm clip 0.1 (3 variants x 10 seeds) | Done. Results below |
 | 6. README report | Not started |
 
 ## How to use
@@ -148,7 +149,7 @@ Here:
 
 ## Known limitations
 
-- The baseline section uses one seed; the sweep uses three, which still leaves wide ranges.
+- The baseline section uses one seed. Seed-to-seed variation is large (sweep 2).
 - After a hard kill, up to one snapshot interval (10k steps) is trained again.
 - Ctrl+C during an update saves the parameters as they are at that moment; the
   interrupted rollout's data is discarded.
@@ -199,7 +200,7 @@ there are only 20 ways to split the 6 runs, so **no difference can reach p < 0.1
 None of the differences is statistically significant. The strongest signals (p = 0.10,
 the smallest possible here, meaning the groups did not overlap at all) are: `kl0.02`
 ends lower than the baseline, and `clip0.1` reaches 3000 later. The findings below are
-therefore **hypotheses**, tested with 10 seeds in sweep 2.
+therefore **hypotheses**; sweep 2 tested the `clip0.1` one with 10 seeds (not confirmed).
 
 Findings (hypotheses; 3 seeds):
 
@@ -225,10 +226,48 @@ Findings (hypotheses; 3 seeds):
 Reproducibility: `baseline_s0` in the sweep produced exactly the same eval log as the
 standalone baseline run (same seed, same settings).
 
+## Sweep 2: confirm clip 0.1 (`configs/sweeps/confirm_clip.toml`, `runs/confirm_clip/`)
+
+Question: is the `clip0.1` advantage from sweep 1 real? The analysis was written into the
+sweep file before running: primary metric = mean of the last 10 evals, exact two-sided
+permutation test against the baseline (10 runs vs 10: 184,756 relabelings).
+Seeds 0-9; seeds 0-2 reproduce sweep 1 exactly. 30 runs took 74 minutes, 3 at a time.
+
+`python compare.py configs/sweeps/confirm_clip.toml`. Means over 10 seeds; difference vs
+baseline with a 95% bootstrap interval; p from the permutation test.
+
+| Metric | baseline | clip0.1 | clip0.1_lrlin |
+|---|---|---|---|
+| **Mean of last 10 evals** (primary) | 2937 (2020-3639) | 3217, +280 [-115, 666], **p = 0.20** | 3118, +181 [-290, 618], p = 0.46 |
+| Final model (10 episodes) | 3102 (1664-3547) | 3245, +143, p = 0.57 | 2989, -113, p = 0.72 |
+| First eval >= 3000 | 217k (130-330k) | 444k, +227k, **p = 0.001** | 486k, +269k, **p = 0.0002** |
+| Collapse rate after that | 10.7% | 9.4%, p = 0.75 | 16.2%, p = 0.82 (see note) |
+
+Note: one `clip0.1_lrlin` run (seed 9) never reached 3000 (best 2983) and counts as a
+100% collapse rate by the script's conservative rule; its median is 0.7%.
+
+Conclusions:
+
+1. **The end-performance advantage of `clip0.1` is not confirmed.** The mean difference
+   is about the same as in sweep 1 (+280 vs +285), but with 10 seeds the baseline's
+   spread turned out much wider (last-10 mean 2020-3639; the first 3 seeds happened to be
+   among its better ones), and the interval still includes zero and harmful values.
+   A real effect smaller than about +650 cannot be ruled out either.
+2. **`clip0.1` learns about 2x slower: confirmed** (p = 0.001). Halving the clip range
+   halves how far each update may move the policy, and it shows early in training.
+3. **Adding learning-rate decay did not help** on any metric.
+4. Run-to-run variation is the dominant effect in this setup: the same settings give
+   last-10 means from about 2000 to 3600 depending on the seed alone.
+
+Lessons on method:
+
+- 3 seeds per variant could not have shown significance (minimum two-sided p = 0.10),
+  and the 3 baseline seeds understated its spread. A ranking from 3 seeds was misleading.
+- Deciding the metric and test before running avoided picking whichever metric looked best.
+
 ## Possible next steps (to be agreed)
 
-1. Confirm `clip0.1` and `lr_linear` with more seeds (e.g. 5), or combine them
-   (`clip0.1` + `lr_linear`).
-2. Normalization ablation (obs and/or reward off), to see why it matters.
-3. `n_steps` (rollout length), `gae_lambda`, `ent_coef`, network size.
-4. The RL Zoo's tuned Hopper settings as a reference point.
+1. Normalization ablation (obs and/or reward off), to see why it matters.
+2. Other settings: `n_steps` (rollout length), `gae_lambda`, `ent_coef`, network size,
+   the RL Zoo's tuned Hopper settings.
+3. README report (stage 6).
