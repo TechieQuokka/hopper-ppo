@@ -21,8 +21,12 @@ class RunConfig:
     total_timesteps: int = 1_000_000
     # Parallel environments. Each PPO rollout collects n_envs * ppo.n_steps steps.
     n_envs: int = 8
-    # "subproc": one process per environment; "dummy": all in this process.
-    vec_env: str = "subproc"
+    # "dummy": all environments in this process; "subproc": one process each.
+    # Hopper's physics step is so cheap that both run at the same speed here.
+    vec_env: str = "dummy"
+    # PyTorch CPU threads; 0 keeps PyTorch's default. One thread was slightly
+    # faster for this small network and leaves cores free for parallel runs.
+    torch_threads: int = 1
     # Camera used for videos. Hopper's "track" camera follows the robot;
     # the default free camera stays still, so the robot hops out of view.
     render_camera: str = "track"
@@ -118,6 +122,8 @@ def validate(cfg: Config) -> None:
     """Reject settings that would fail late or silently misbehave."""
     if cfg.run.n_envs < 1:
         raise ValueError("run.n_envs must be at least 1")
+    if cfg.run.torch_threads < 0:
+        raise ValueError("run.torch_threads must be 0 (PyTorch default) or more")
     if cfg.run.vec_env not in ("subproc", "dummy"):
         raise ValueError(f"run.vec_env must be 'subproc' or 'dummy', got {cfg.run.vec_env!r}")
     if cfg.ppo.lr_schedule not in ("constant", "linear"):

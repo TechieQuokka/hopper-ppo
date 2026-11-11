@@ -13,6 +13,7 @@ import sys
 import time
 from pathlib import Path
 
+import torch
 from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat
 
 from hopper_ppo.builders import add_normalization, make_eval_env, make_model, make_train_env
@@ -92,6 +93,8 @@ def main() -> None:
     save_config(cfg, paths.config_file)
     print(f"[run] {display_path(paths.root)}")
 
+    if cfg.run.torch_threads:
+        torch.set_num_threads(cfg.run.torch_threads)
     venv = make_train_env(cfg, monitor_dir=paths.monitor_dir, append=resuming)
     eval_env = make_eval_env(cfg)
 
@@ -113,7 +116,8 @@ def main() -> None:
     start_step = model.num_timesteps
     remaining = cfg.run.total_timesteps - start_step
     print(
-        f"[run] device={model.device} n_envs={cfg.run.n_envs} rollout={cfg.rollout_size} "
+        f"[run] device={model.device} threads={torch.get_num_threads()} n_envs={cfg.run.n_envs} "
+        f"({cfg.run.vec_env}) rollout={cfg.rollout_size} "
         f"steps {start_step} -> {cfg.run.total_timesteps}"
     )
 

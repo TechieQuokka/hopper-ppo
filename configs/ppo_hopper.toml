@@ -8,9 +8,10 @@
 name = "ppo_hopper"
 env_id = "Hopper-v5"
 seed = 0
-device = "cpu"             # small MLP: confirmed by tests/bench_speed.py
-n_envs = 8                 # parallel environments: confirmed by tests/bench_speed.py
-vec_env = "subproc"        # one process per environment
+device = "cpu"             # faster than cuda for this small MLP (tests/bench_speed.py)
+n_envs = 8                 # parallel environments, stepped as one batch
+vec_env = "dummy"          # all in one process: as fast as one process each here
+torch_threads = 1          # slightly faster than the default and leaves cores free
 total_timesteps = 1_000_000
 render_camera = "track"    # camera that follows the robot in videos
 
