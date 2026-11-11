@@ -1,0 +1,28 @@
+# Sweep 2: confirm the clip0.1 result of sweep 1 with 10 seeds per variant.
+#
+# With 3 seeds per variant, no difference could reach p < 0.10 (two-sided
+# permutation test), and clip0.1 vs baseline gave p = 0.40.
+# Analysis decided before running:
+#   primary metric: mean of the last 10 evals (end-of-training performance)
+#   test: exact two-sided permutation test on the difference of means, vs baseline
+#   secondary: final model score, first eval >= 3000, collapse rate
+#   python sweep.py configs/sweeps/confirm_clip.toml --jobs 3
+#   python compare.py runs/confirm_clip
+
+[sweep]
+name = "confirm_clip"
+base = "configs/ppo_hopper.toml"
+seeds = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+common = []
+
+[[variants]]
+tag = "baseline"
+set = []
+
+[[variants]]
+tag = "clip0.1"
+set = ["ppo.clip_range=0.1"]
+
+[[variants]]
+tag = "clip0.1_lrlin"     # clip0.1 plus learning rate decaying linearly to 0
+set = ["ppo.clip_range=0.1", 'ppo.lr_schedule="linear"']

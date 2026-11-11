@@ -185,7 +185,23 @@ Per-run numbers: `docs/update_size_summary.csv`.
 "Late" = mean of the last 50 updates. Charts: `assets/update_size_learning_curve.png`,
 `assets/update_size_diagnostics.png`.
 
-Findings (3 seeds, so only large and consistent differences count):
+**Significance check** (`python compare.py configs/sweeps/update_size.toml`): exact
+two-sided permutation tests on per-run values, vs the baseline. With 3 runs against 3
+there are only 20 ways to split the 6 runs, so **no difference can reach p < 0.10**.
+
+| Variant | Last 10 evals, diff | p | Final model, diff | p | First eval >= 3000, diff | p |
+|---|---|---|---|---|---|---|
+| lr_linear | -63 | 0.80 | -242 | 0.90 | +103k | 0.30 |
+| epochs5 | -181 | 1.00 | -691 | 0.50 | +207k | 0.20 |
+| clip0.1 | +285 | 0.40 | +136 | 0.50 | +170k | 0.10 |
+| kl0.02 | -728 | 0.10 | -540 | 0.50 | +140k | 0.40 |
+
+None of the differences is statistically significant. The strongest signals (p = 0.10,
+the smallest possible here, meaning the groups did not overlap at all) are: `kl0.02`
+ends lower than the baseline, and `clip0.1` reaches 3000 later. The findings below are
+therefore **hypotheses**, tested with 10 seeds in sweep 2.
+
+Findings (hypotheses; 3 seeds):
 
 1. **Every variant lowered the late approx_kl** (0.006-0.019 vs 0.042), so each knob did
    what it says. A smaller KL alone did not make training more stable.
@@ -193,8 +209,8 @@ Findings (3 seeds, so only large and consistent differences count):
    10 epochs late in training: the worst variant on every measure, with the training
    return stuck near 1800-2000. `epochs5` was also worse than the baseline and varied
    most between seeds. Fewer passes over the data means less learning per rollout.
-3. **Limiting the step per sample helped at the end.** `clip0.1` had the best and most
-   consistent end result: all three seeds above 3325 over the last 10 evals and above
+3. **Limiting the step per sample may help at the end** (not significant, p = 0.40).
+   `clip0.1` had the best and most consistent end result: all three seeds above 3325 over the last 10 evals and above
    3350 for the final model; seed 2 reached the best single score (3772, final 3706).
    Its clip fraction stays as high as the baseline's (a narrower clip catches more
    samples), but its KL stays low.
